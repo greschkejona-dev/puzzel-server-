@@ -1,0 +1,10 @@
+Hier kommen die Fotos für das Daily-Puzzle rein (jpg, png oder webp).
+
+- Jeden Tag nimmt der Server automatisch das nächste Foto, der Reihe nach (alphabetisch sortiert).
+  Tipp: Dateien nummerieren, z. B. 01-berge.jpg, 02-fuchs.jpg ...
+- Liegt hier kein Foto, wird ein Bild automatisch gezeichnet.
+- Nimm Fotos, die du frei nutzen darfst: Quellen mit CC0 / "Public Domain"
+  (z. B. Pexels, Pixabay, Unsplash, Wikimedia Commons). Lizenz kurz prüfen.
+- Am besten: Natur, Tiere, Landschaften, Sehenswürdigkeiten.
+  Besser ohne erkennbare Personen, Marken, Logos, Kunstwerke oder Autos mit Beschriftung.
+- Querformat, ca. 1600 Pixel Breite reichen völlig.
