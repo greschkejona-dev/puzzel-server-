@@ -46,15 +46,15 @@ function frame(c){const b=c.buf;if(b.length<2)return null;const op=b[0]&15;let l
  const m=b[1]&128;if(m)o+=4;if(b.length<o+len)return null;
  const p=Buffer.from(b.subarray(o,o+len));if(m){const k=b.subarray(o-4,o);for(let i=0;i<len;i++)p[i]^=k[i%4]}
  c.buf=b.subarray(o+len);return{op,p}}
-const pl=r=>[...r.cl].map(c=>({id:c.id,name:c.name,av:c.av,col:c.col,n:c.n}));
-const sendInit=(r,c)=>wsend(c,{t:'init',code:r.code,n:r.n,seed:r.seed,img:r.img,state:r.state,el:(Date.now()-r.t0)/1000,host:r.host===c,me:c.id,p:pl(r)});
+const pl=r=>[...r.cl].map(c=>({id:c.id,name:c.name,av:c.av,col:c.col,n:c.n,ac:c.ac,tm:c.tm}));
+const sendInit=(r,c)=>wsend(c,{t:'init',code:r.code,n:r.n,seed:r.seed,img:r.img,mode:r.mode,state:r.state,el:(Date.now()-r.t0)/1000,host:r.host===c,me:c.id,p:pl(r)});
 const bc=(r,o,ex)=>{for(const c of r.cl)if(c!==ex)wsend(c,o)};
 function leave(c){const r=c.room;if(!r)return;r.cl.delete(c);c.room=null;if(!r.cl.size)setTimeout(()=>{if(!r.cl.size)rooms.delete(r.code)},6e5);else bc(r,{t:'pl',p:pl(r)})}
 function msg(c,m){
- if(m.t==='create'||m.t==='join'){leave(c);c.name=clean(m.name,14)||'Gast';c.av=clean(m.av,4)||'🦊';let r;
+ if(m.t==='create'||m.t==='join'){leave(c);c.name=clean(m.name,14)||'Gast';c.av=clean(m.av,4)||'🦊';c.ac=/^#[0-9a-f]{6}$/i.test(m.ac)?m.ac:'';let r;
   if(m.t==='create'){let code;do code=Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0]).join('');while(rooms.has(code));
    const n=[24,48,100,250,500].includes(+m.n)?+m.n:100,L=dailyList();
-   r={code,n,seed:1+Math.random()*2e9|0,img:L.length?'/daily/'+encodeURIComponent(L[Math.random()*L.length|0]):null,state:null,t0:Date.now(),cl:new Set(),host:c};rooms.set(code,r)}
+   r={code,mode:'coop',n,seed:1+Math.random()*2e9|0,img:L.length?'/daily/'+encodeURIComponent(L[Math.random()*L.length|0]):null,state:null,t0:Date.now(),cl:new Set(),host:c};rooms.set(code,r)}
   else{r=rooms.get(clean(m.code,4).toUpperCase());if(!r)return wsend(c,{t:'err',m:'Raum nicht gefunden'})}
   if(r.cl.size>=8)return wsend(c,{t:'err',m:'Raum ist voll'});
   c.col=[0,1,2,3,4,5,6,7].find(i=>![...r.cl].some(x=>x.col===i))||0;c.n=0;r.cl.add(c);c.room=r;sendInit(r,c);bc(r,{t:'pl',p:pl(r)},c);return}
@@ -62,13 +62,14 @@ function msg(c,m){
  if(m.t==='cur')return bc(r,{t:'cur',id:c.id,x:+m.x||0,y:+m.y||0},c);
  if(m.t==='new'){const n=[24,48,100,250,500].includes(+m.n)?+m.n:r.n;let img=null;
   if(typeof m.img==='string'){if(m.img.startsWith('/daily/')&&dailyList().includes(decodeURIComponent(m.img.slice(7))))img=m.img;else if(/^data:image\/jpeg;base64,/.test(m.img)&&m.img.length<1.6e6)img=m.img}
-  r.n=n;r.img=img;r.seed=1+Math.random()*2e9|0;r.state=null;r.t0=Date.now();r.host=c;for(const x of r.cl)x.n=0;for(const x of r.cl)sendInit(r,x);return}
+  r.n=n;r.mode=m.mode==='race'?'race':'coop';r.img=img;r.seed=1+Math.random()*2e9|0;r.state=null;r.t0=Date.now();r.host=c;for(const x of r.cl){x.n=0;x.tm=0}for(const x of r.cl)sendInit(r,x);return}
+ if(m.t==='done'){if(r.mode==='race'&&!c.tm){const s=Math.floor(+m.s);if(s>=r.n*.4&&s<=(Date.now()-r.t0)/1000+5){c.tm=Math.max(1,s);bc(r,{t:'pl',p:pl(r)})}}return}
  if(m.t==='mv'&&Array.isArray(m.u))bc(r,{t:'mv',u:m.u},c);
  else if(m.t==='st'&&Array.isArray(m.u)){bc(r,{t:'st',u:m.u},c);if(r.state){let inc=0;for(const[k,x,y,g]of m.u){const o=r.state[k];if(g===0&&o&&o[2]!==0)inc++;r.state[k]=[x,y,g]}if(inc){c.n+=inc;bc(r,{t:'pl',p:pl(r)})}}}
  else if(m.t==='full'&&Array.isArray(m.u)&&!r.state){r.state=m.u;bc(r,{t:'full',u:m.u},c)}}
 srv.on('upgrade',(req,sock)=>{const key=req.headers['sec-websocket-key'];if(req.url!=='/ws'||!key){sock.destroy();return}
  sock.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: '+crypto.createHash('sha1').update(key+GUID).digest('base64')+'\r\n\r\n');
- const c={id:crypto.randomBytes(3).toString('hex'),col:0,n:0,sock,room:null,name:'Gast',av:'🦊',buf:Buffer.alloc(0)};
+ const c={id:crypto.randomBytes(3).toString('hex'),col:0,n:0,tm:0,ac:'',sock,room:null,name:'Gast',av:'🦊',buf:Buffer.alloc(0)};
  sock.on('data',d=>{c.buf=Buffer.concat([c.buf,d]);let f;while(f=frame(c)){
   if(f.op===8){sock.end();return}if(f.op===9){sock.write(Buffer.from([0x8A,0]));continue}
   if(f.op===1){try{msg(c,JSON.parse(f.p.toString()))}catch(e){}}}});
