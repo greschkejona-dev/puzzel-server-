@@ -59,7 +59,7 @@ function msg(c,m){
   if(r.cl.size>=8)return wsend(c,{t:'err',m:'Raum ist voll'});
   c.col=[0,1,2,3,4,5,6,7].find(i=>![...r.cl].some(x=>x.col===i))||0;c.n=0;r.cl.add(c);c.room=r;sendInit(r,c);bc(r,{t:'pl',p:pl(r)},c);return}
  const r=c.room;if(!r)return;
- if(m.t==='cur')return bc(r,{t:'cur',id:c.id,x:+m.x||0,y:+m.y||0},c);
+ if(m.t==='cur')return bc(r,{t:'cur',id:c.id,x:+m.x||0,y:+m.y||0,d:m.d?1:0},c);
  if(m.t==='new'){const n=[24,48,100,250,500].includes(+m.n)?+m.n:r.n;let img=null;
   if(typeof m.img==='string'){if(m.img.startsWith('/daily/')&&dailyList().includes(decodeURIComponent(m.img.slice(7))))img=m.img;else if(/^data:image\/jpeg;base64,/.test(m.img)&&m.img.length<1.6e6)img=m.img}
   r.n=n;r.mode=m.mode==='race'?'race':'coop';r.img=img;r.seed=1+Math.random()*2e9|0;r.state=null;r.t0=Date.now();r.host=c;for(const x of r.cl){x.n=0;x.tm=0}for(const x of r.cl)sendInit(r,x);return}
