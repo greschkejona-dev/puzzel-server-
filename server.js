@@ -36,7 +36,7 @@ fs.readFile(f,(e,data)=>{if(e)return send(res,404,{error:'not found'});res.write
 srv.listen(PORT,()=>console.log('Puzzly läuft auf http://localhost:'+PORT));
 // --- Räume (WebSocket ohne Zusatzprogramme) ---
 const dailyList=()=>{try{return fs.readdirSync(DAILY).filter(x=>/\.(jpe?g|png|webp)$/i.test(x)).sort()}catch(e){return[]}};
-const rooms=new Map(),GUID='258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+let queue=[];const rooms=new Map(),GUID='258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 function wsend(c,o){const p=Buffer.from(JSON.stringify(o)),n=p.length;let h;
  if(n<126)h=Buffer.from([0x81,n]);else if(n<65536){h=Buffer.alloc(4);h[0]=0x81;h[1]=126;h.writeUInt16BE(n,2)}else{h=Buffer.alloc(10);h[0]=0x81;h[1]=127;h.writeBigUInt64BE(BigInt(n),2)}
  try{c.sock.write(Buffer.concat([h,p]))}catch(e){}}
@@ -45,12 +45,18 @@ function frame(c){const b=c.buf;if(b.length<2)return null;const op=b[0]&15;let l
  if(len>2e6){c.sock.destroy();return null}
  const m=b[1]&128;if(m)o+=4;if(b.length<o+len)return null;
  const p=Buffer.from(b.subarray(o,o+len));if(m){const k=b.subarray(o-4,o);for(let i=0;i<len;i++)p[i]^=k[i%4]}
- c.buf=b.subarray(o+len);return{op,p}}
-const pl=r=>[...r.cl].map(c=>({id:c.id,name:c.name,av:c.av,col:c.col,n:c.n,ac:c.ac,tm:c.tm}));
+ c.buf=b.subarray(o+len);return{op,fin:b[0]&128,p}}
+const pl=r=>[...r.cl].map(c=>({id:c.id,name:c.name,av:c.av,col:c.col,n:c.n,ac:c.ac,tm:c.tm,ld:r.host===c}));
 const sendInit=(r,c)=>wsend(c,{t:'init',code:r.code,n:r.n,seed:r.seed,img:r.img,mode:r.mode,state:r.state,el:(Date.now()-r.t0)/1000,host:r.host===c,me:c.id,p:pl(r)});
 const bc=(r,o,ex)=>{for(const c of r.cl)if(c!==ex)wsend(c,o)};
-function leave(c){const r=c.room;if(!r)return;r.cl.delete(c);c.room=null;if(!r.cl.size)setTimeout(()=>{if(!r.cl.size)rooms.delete(r.code)},6e5);else bc(r,{t:'pl',p:pl(r)})}
+function leave(c){queue=queue.filter(x=>x.c!==c);const r=c.room;if(!r)return;r.cl.delete(c);c.room=null;if(r.host===c&&r.cl.size)r.host=[...r.cl][0];if(!r.cl.size)setTimeout(()=>{if(!r.cl.size)rooms.delete(r.code)},6e5);else bc(r,{t:'pl',p:pl(r)})}
 function msg(c,m){
+ if(m.t==='unq'){queue=queue.filter(x=>x.c!==c);return}
+ if(m.t==='queue'){leave(c);c.name=clean(m.name,14)||'Gast';c.av=clean(m.av,4)||'🦊';c.ac=/^#[0-9a-f]{6}$/i.test(m.ac)?m.ac:'';const n=+m.n===48?48:100,w=queue.find(x=>x.n===n&&x.c!==c);
+  if(w){queue=queue.filter(x=>x!==w);const L=dailyList();let code;do code=Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0]).join('');while(rooms.has(code));
+   const r={code,mode:'race',n,seed:1+Math.random()*2e9|0,img:L.length?'/daily/'+encodeURIComponent(L[Math.random()*L.length|0]):null,state:null,t0:Date.now(),cl:new Set(),host:w.c};rooms.set(code,r);
+   [w.c,c].forEach((x,i)=>{x.col=i;x.n=0;x.tm=0;r.cl.add(x);x.room=r});for(const x of r.cl)sendInit(r,x)}
+  else{queue.push({c,n});wsend(c,{t:'wait'})}return}
  if(m.t==='create'||m.t==='join'){leave(c);c.name=clean(m.name,14)||'Gast';c.av=clean(m.av,4)||'🦊';c.ac=/^#[0-9a-f]{6}$/i.test(m.ac)?m.ac:'';let r;
   if(m.t==='create'){let code;do code=Array.from({length:4},()=>'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.random()*24|0]).join('');while(rooms.has(code));
    const n=[24,48,100,250,500].includes(+m.n)?+m.n:100,L=dailyList();
@@ -59,8 +65,9 @@ function msg(c,m){
   if(r.cl.size>=8)return wsend(c,{t:'err',m:'Raum ist voll'});
   c.col=[0,1,2,3,4,5,6,7].find(i=>![...r.cl].some(x=>x.col===i))||0;c.n=0;r.cl.add(c);c.room=r;sendInit(r,c);bc(r,{t:'pl',p:pl(r)},c);return}
  const r=c.room;if(!r)return;
+ if(m.t==='lead'||m.t==='kick'){if(r.host!==c)return;const x=[...r.cl].find(z=>z.id===m.id);if(!x||x===c)return;if(m.t==='lead'){r.host=x;bc(r,{t:'pl',p:pl(r)})}else{wsend(x,{t:'kicked'});leave(x);try{x.sock.end()}catch(e){}}return}
  if(m.t==='cur')return bc(r,{t:'cur',id:c.id,x:+m.x||0,y:+m.y||0,d:m.d?1:0},c);
- if(m.t==='new'){const n=[24,48,100,250,500].includes(+m.n)?+m.n:r.n;let img=null;
+ if(m.t==='new'){if(r.host!==c)return;const n=[24,48,100,250,500].includes(+m.n)?+m.n:r.n;let img=null;
   if(typeof m.img==='string'){if(m.img.startsWith('/daily/')&&dailyList().includes(decodeURIComponent(m.img.slice(7))))img=m.img;else if(/^data:image\/jpeg;base64,/.test(m.img)&&m.img.length<1.6e6)img=m.img}
   r.n=n;r.mode=m.mode==='race'?'race':'coop';r.img=img;r.seed=1+Math.random()*2e9|0;r.state=null;r.t0=Date.now();r.host=c;for(const x of r.cl){x.n=0;x.tm=0}for(const x of r.cl)sendInit(r,x);return}
  if(m.t==='done'){if(r.mode==='race'&&!c.tm){const s=Math.floor(+m.s);if(s>=r.n*.4&&s<=(Date.now()-r.t0)/1000+5){c.tm=Math.max(1,s);bc(r,{t:'pl',p:pl(r)})}}return}
@@ -72,6 +79,7 @@ srv.on('upgrade',(req,sock)=>{const key=req.headers['sec-websocket-key'];if(req.
  const c={id:crypto.randomBytes(3).toString('hex'),col:0,n:0,tm:0,ac:'',sock,room:null,name:'Gast',av:'🦊',buf:Buffer.alloc(0)};
  sock.on('data',d=>{c.buf=Buffer.concat([c.buf,d]);let f;while(f=frame(c)){
   if(f.op===8){sock.end();return}if(f.op===9){sock.write(Buffer.from([0x8A,0]));continue}
-  if(f.op===1){try{msg(c,JSON.parse(f.p.toString()))}catch(e){}}}});
+  if(f.op===1||f.op===0){c.fr=f.op===1?[f.p]:[...(c.fr||[]),f.p];if(c.fr.reduce((n,x)=>n+x.length,0)>2e6){sock.destroy();return}
+   if(f.fin){const t=Buffer.concat(c.fr).toString();c.fr=null;try{msg(c,JSON.parse(t))}catch(e){}}}}});
  sock.on('close',()=>leave(c));sock.on('error',()=>leave(c))});
 
